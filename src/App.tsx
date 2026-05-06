@@ -57,6 +57,9 @@ const ADMIN_LOGIN = "admin";
 const ADMIN_PASSWORD = "Atelier2026!";
 const TELEGRAM_CHANNEL_URL = "https://t.me/testyar";
 const TELEGRAM_CHAT_ID = "@testyar";
+/** Личные сообщения организаторам */
+const TELEGRAM_CONTACT_URL = "https://t.me/katalina5004";
+const TELEGRAM_CONTACT_HANDLE = "@katalina5004";
 const TELEGRAM_BOT_TOKEN = import.meta.env.VITE_TELEGRAM_BOT_TOKEN as string | undefined;
 
 const normalize = (v: unknown) => String(v ?? "").trim();
@@ -99,6 +102,9 @@ const detectCollections = (category: string, mood: string): string[] => {
   if (mood.includes("Отдохнуть") || category.includes("Природа")) out.add("🌿 Отдых и перезагрузка");
   return [...out];
 };
+
+const tagsFromCategoriesAndMoods = (cats: string[], moodsList: string[]): string[] =>
+  Array.from(new Set([...cats, ...moodsList].map((x) => normalize(x.replace(/^.. /, ""))).filter(Boolean)));
 
 const parseDateTime = (e: EventItem): number => {
   const dt = new Date(`${e.date}T${e.time || "23:59"}`);
@@ -505,13 +511,10 @@ function App() {
     description: "",
     date: "",
     time: "",
-    city: "",
     location: "",
-    address: "",
     price: "",
     link: "",
     image: "",
-    tagsRaw: "",
     categories: [] as string[],
     moods: [] as string[]
   });
@@ -648,8 +651,12 @@ function App() {
     () => collectionCards.filter((c) => collectionFavorites.includes(c.id)),
     [collectionCards, collectionFavorites]
   );
+  const vipEventsAdmin = useMemo(() => events.filter((e) => e.isVip), [events]);
 
   const toggleFavorite = (id: string) => setFavorites((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const patchEvent = (id: string, patch: Partial<EventItem>) =>
+    setEvents((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch, updatedAt: new Date().toISOString() } : x)));
+  const deleteEventById = (id: string) => setEvents((prev) => prev.filter((x) => x.id !== id));
 
   const readRows = async (upload: File): Promise<Record<string, unknown>[]> => {
     const ext = upload.name.split(".").pop()?.toLowerCase();
@@ -945,7 +952,7 @@ function App() {
             <h3>{e.title}</h3>
             <p className="clamp">{e.shortDescription}</p>
             <small>
-              {e.city || "Город"} • {e.location || "Место"} • {e.price || "По запросу"}
+              {[normalize(e.city), normalize(e.location)].filter(Boolean).join(" • ") || "Место уточняется"} • {e.price || "По запросу"}
             </small>
           </div>
         </article>
@@ -1000,24 +1007,16 @@ function App() {
               </section>
               <section className="panel">
                 <h3>VIP‑мероприятие в топ‑подборках (вручную)</h3>
-                <p className="hint">Заполните поля: дата, время, место, цена, заголовок, описание, ссылка, теги и фото — событие появится в выбранных подборках с пометкой VIP.</p>
+                <p className="hint">Заполните поля: дата, время, место, цена, заголовок, описание, ссылка и фото — событие появится в выбранных подборках с пометкой VIP.</p>
                 <div className="actions" style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}>
                   <input type="date" value={vipDraft.date} onChange={(e) => setVipDraft((p) => ({ ...p, date: e.target.value }))} />
                   <input placeholder="Время (например 19:00)" value={vipDraft.time} onChange={(e) => setVipDraft((p) => ({ ...p, time: e.target.value }))} />
-                  <input placeholder="Город" value={vipDraft.city} onChange={(e) => setVipDraft((p) => ({ ...p, city: e.target.value }))} />
                   <input placeholder="Место / площадка" value={vipDraft.location} onChange={(e) => setVipDraft((p) => ({ ...p, location: e.target.value }))} />
-                  <input placeholder="Адрес" value={vipDraft.address} onChange={(e) => setVipDraft((p) => ({ ...p, address: e.target.value }))} />
                   <input placeholder="Цена" value={vipDraft.price} onChange={(e) => setVipDraft((p) => ({ ...p, price: e.target.value }))} />
                   <input placeholder="Заголовок" value={vipDraft.title} onChange={(e) => setVipDraft((p) => ({ ...p, title: e.target.value }))} />
                   <input placeholder="Ссылка (подробнее / билет)" value={vipDraft.link} onChange={(e) => setVipDraft((p) => ({ ...p, link: e.target.value }))} />
                 </div>
                 <textarea placeholder="Описание" value={vipDraft.description} onChange={(e) => setVipDraft((p) => ({ ...p, description: e.target.value }))} />
-                <textarea
-                  placeholder="Теги через запятую (любое количество)"
-                  value={vipDraft.tagsRaw}
-                  style={{ marginTop: 8 }}
-                  onChange={(e) => setVipDraft((p) => ({ ...p, tagsRaw: e.target.value }))}
-                />
                 <div className="actions">
                   <label className="ghost" style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
                     Загрузить фото (16:9)
@@ -1107,17 +1106,8 @@ function App() {
                       const primaryCategory = categoriesPicked[0] || detectCategory(lower(`${title} ${vipDraft.description} ${vipDraft.location}`));
                       const primaryMood = moodsPicked[0] || detectMood(lower(`${title} ${vipDraft.description} ${vipDraft.location}`));
                       const collectionsPicked = Array.from(new Set(vipCollections.length ? vipCollections : ["🔥 Лучшее и актуальное"]));
-                      const freeTags = vipDraft.tagsRaw
-                        .split(/[,;\n|]+/)
-                        .map((x) => normalize(x))
-                        .filter(Boolean);
-                      const tagParts = [
-                        ...freeTags,
-                        ...categoriesPicked.map((x) => normalize(x.replace(/^.. /, ""))),
-                        ...moodsPicked.map((x) => normalize(x.replace(/^.. /, ""))),
-                        normalize(primaryCategory.replace(/^.. /, "")),
-                        normalize(primaryMood.replace(/^.. /, ""))
-                      ].filter(Boolean);
+                      const catsResolved = Array.from(new Set([primaryCategory, ...categoriesPicked]));
+                      const moodsResolved = Array.from(new Set([primaryMood, ...moodsPicked]));
                       setEvents((prev) => [
                         {
                           id: crypto.randomUUID(),
@@ -1126,17 +1116,17 @@ function App() {
                           description: normalize(vipDraft.description),
                           date: bumpDateToFuture(date, normalize(vipDraft.time)),
                           time: normalizeTimeInput(vipDraft.time),
-                          city: normalize(vipDraft.city),
+                          city: "",
                           location: normalize(vipDraft.location),
-                          address: normalize(vipDraft.address),
+                          address: "",
                           price: normalize(vipDraft.price) || "По запросу",
                           isFree: lower(vipDraft.price).includes("бесплат"),
                           category: primaryCategory,
-                          categories: Array.from(new Set([primaryCategory, ...categoriesPicked])),
+                          categories: catsResolved,
                           mood: primaryMood,
-                          moods: Array.from(new Set([primaryMood, ...moodsPicked])),
+                          moods: moodsResolved,
                           collections: collectionsPicked,
-                          tags: Array.from(new Set(tagParts)),
+                          tags: tagsFromCategoriesAndMoods(catsResolved, moodsResolved),
                           detailsLink: normalize(vipDraft.link),
                           ticketLink: "",
                           image: normalize(vipDraft.image),
@@ -1155,13 +1145,10 @@ function App() {
                         description: "",
                         date: "",
                         time: "",
-                        city: "",
                         location: "",
-                        address: "",
                         price: "",
                         link: "",
                         image: "",
-                        tagsRaw: "",
                         categories: [],
                         moods: []
                       });
@@ -1174,9 +1161,139 @@ function App() {
                 </div>
               </section>
               <section className="panel">
-                <h3>Карточки топ-подборок (редактирование / удаление)</h3>
+                <h3>Топ‑подборки: редактирование и удаление</h3>
+                <p className="hint" style={{ marginBottom: 12 }}>
+                  <strong>VIP‑мероприятия</strong> (форма выше) сохраняются как события и показываются здесь. Блок ниже — только отдельные промо‑карточки без даты.
+                </p>
+
+                <h4 style={{ margin: "0 0 8px", fontSize: 16 }}>VIP‑мероприятия</h4>
+                {vipEventsAdmin.length === 0 ? (
+                  <p style={{ marginBottom: 18 }}>Пока нет VIP‑мероприятий — добавьте через форму «VIP‑мероприятие в топ‑подборках».</p>
+                ) : (
+                  <div className="list" style={{ marginTop: 0, marginBottom: 22 }}>
+                    {vipEventsAdmin.map((e) => (
+                      <details key={e.id} className="panel" style={{ padding: 14 }}>
+                        <summary style={{ cursor: "pointer" }}>
+                          <b>{e.title || "Без названия"}</b>{" "}
+                          <span style={{ opacity: 0.7 }}>
+                            — {e.date} {e.time || ""} • VIP
+                          </span>
+                        </summary>
+                        <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+                          <div className="actions" style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
+                            <input placeholder="Заголовок" value={e.title} onChange={(ev) => patchEvent(e.id, { title: ev.target.value })} />
+                            <input type="date" value={e.date} onChange={(ev) => patchEvent(e.id, { date: ev.target.value })} />
+                            <input placeholder="Время" value={e.time} onChange={(ev) => patchEvent(e.id, { time: normalizeTimeInput(ev.target.value) })} />
+                            <input placeholder="Место / площадка" value={e.location} onChange={(ev) => patchEvent(e.id, { location: ev.target.value })} />
+                            <input placeholder="Цена" value={e.price} onChange={(ev) => patchEvent(e.id, { price: ev.target.value })} />
+                            <input placeholder="Ссылка" value={e.detailsLink} onChange={(ev) => patchEvent(e.id, { detailsLink: ev.target.value })} />
+                          </div>
+                          <textarea
+                            placeholder="Описание"
+                            value={e.description}
+                            onChange={(ev) => {
+                              const v = ev.target.value;
+                              patchEvent(e.id, { description: v, shortDescription: short(v) });
+                            }}
+                          />
+                          <div className="actions" style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+                            {categories.map((c) => {
+                              const checked = e.categories.includes(c);
+                              return (
+                                <label key={`${e.id}-cat-${c}`} className="ghost" style={{ display: "flex", gap: 10, alignItems: "center", padding: 8, borderRadius: 10 }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={(ev) => {
+                                      let nextCats = ev.target.checked ? Array.from(new Set([...e.categories, c])) : e.categories.filter((x) => x !== c);
+                                      if (!nextCats.length) nextCats = [e.category];
+                                      patchEvent(e.id, {
+                                        categories: nextCats,
+                                        category: nextCats[0],
+                                        tags: tagsFromCategoriesAndMoods(nextCats, e.moods)
+                                      });
+                                    }}
+                                  />
+                                  <span>{c}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                          <div className="actions" style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+                            {moods.map((m) => {
+                              const checked = e.moods.includes(m);
+                              return (
+                                <label key={`${e.id}-mood-${m}`} className="ghost" style={{ display: "flex", gap: 10, alignItems: "center", padding: 8, borderRadius: 10 }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={(ev) => {
+                                      let nextMoods = ev.target.checked ? Array.from(new Set([...e.moods, m])) : e.moods.filter((x) => x !== m);
+                                      if (!nextMoods.length) nextMoods = [e.mood];
+                                      patchEvent(e.id, {
+                                        moods: nextMoods,
+                                        mood: nextMoods[0],
+                                        tags: tagsFromCategoriesAndMoods(e.categories, nextMoods)
+                                      });
+                                    }}
+                                  />
+                                  <span>{m}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                          <div className="actions" style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))" }}>
+                            {collectionKeys.map((k) => {
+                              const checked = e.collections.includes(k);
+                              return (
+                                <label key={`${e.id}-col-${k}`} className="ghost" style={{ display: "flex", gap: 10, alignItems: "center", padding: 8, borderRadius: 10 }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={(ev) => {
+                                      const nextCols = ev.target.checked ? Array.from(new Set([...e.collections, k])) : e.collections.filter((x) => x !== k);
+                                      patchEvent(e.id, {
+                                        collections: nextCols.length ? nextCols : ["🔥 Лучшее и актуальное"]
+                                      });
+                                    }}
+                                  />
+                                  <span>{k}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                          <div className="actions" style={{ flexWrap: "wrap" }}>
+                            <label className="ghost" style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+                              Заменить фото
+                              <input
+                                type="file"
+                                accept="image/*"
+                                style={{ display: "none" }}
+                                onChange={(ev) => onCollectionImageUpload(ev.target.files?.[0] ?? null, (image) => patchEvent(e.id, { image }))}
+                              />
+                            </label>
+                            {e.image ? (
+                              <button type="button" className="ghost" onClick={() => patchEvent(e.id, { image: "" })}>
+                                Убрать фото
+                              </button>
+                            ) : null}
+                            <button type="button" onClick={() => deleteEventById(e.id)}>
+                              Удалить мероприятие
+                            </button>
+                          </div>
+                          {e.image ? <img className="cover preview-cover" src={e.image} alt="" /> : null}
+                        </div>
+                      </details>
+                    ))}
+                  </div>
+                )}
+
+                <h4 style={{ margin: "0 0 8px", fontSize: 16 }}>Промо‑карточки подборок</h4>
+                <p className="hint" style={{ marginBottom: 10 }}>
+                  Отдельные карточки с картинкой и текстом без привязки к дате. Если вы добавляете только VIP‑события, здесь может не быть записей.
+                </p>
                 {collectionCards.length === 0 ? (
-                  <p>Пока нет добавленных карточек.</p>
+                  <p>Промо‑карточек нет.</p>
                 ) : (
                   <div className="list" style={{ marginTop: 0 }}>
                     {collectionCards.map((c) => (
@@ -1482,7 +1599,41 @@ function App() {
           )}
         </>
       )}
-      {page === "about" && <section className="panel"><h2>О проекте</h2><p>Пользователь видит только будущие мероприятия. Отборка всегда привязана к текущим дате и времени.</p></section>}
+      {page === "about" && (
+        <section className="panel about-page">
+          <h2>О проекте</h2>
+          <p className="about-lead">
+            Мы собираем живые события города в одном месте: чтобы проще выбирать, куда пойти сегодня и на выходных.
+          </p>
+
+          <h3>О нас</h3>
+          <p>
+            Команда афиши формирует подборки мероприятий — от спокойного отдыха до активностей и тусовок. Мы следим за актуальностью
+            дат и не показываем прошедшие события в основной выдаче.
+          </p>
+
+          <h3>Миссия</h3>
+          <p>
+            Сделать так, чтобы люди чаще выходили из дома навстречу впечатлениям: помогать находить своё настроение по дате, тематике и
+            интересам — без лишнего шума и устаревших анонсов.
+          </p>
+
+          <h3>Связь с организаторами</h3>
+          <p>
+            Вопросы по размещению, правкам анонса и сотрудничеству пишите в Telegram:{" "}
+            <a href={TELEGRAM_CONTACT_URL} target="_blank" rel="noreferrer">
+              {TELEGRAM_CONTACT_HANDLE}
+            </a>
+            . Мы ответим в рабочем порядке и поможем корректно отразить ваше мероприятие на сайте.
+          </p>
+
+          <h3>Для организаторов</h3>
+          <p>
+            <strong>Добавление вашего мероприятия в наш проект — бесплатно.</strong> Расскажите о дате, месте, цене и дайте ссылку на
+            подробности — мы поможем попасть в нужные подборки и к нужной аудитории.
+          </p>
+        </section>
+      )}
 
     </div>
   );
