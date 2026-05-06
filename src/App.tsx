@@ -70,6 +70,16 @@ const asArray = <T,>(value: unknown, fallback: T[]): T[] => (Array.isArray(value
 const asObject = <T extends object>(value: unknown, fallback: T): T =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as T) : fallback;
 
+const stripLeadingEmoji = (value: string): string =>
+  value
+    .replace(
+      // remove leading emoji / symbols and extra spaces (handles "🏃 Активности" and also "Активности")
+      /^[\s\p{Extended_Pictographic}\p{Emoji_Presentation}\p{Emoji}\u200d\uFE0F]+/gu,
+      ""
+    )
+    .replace(/^[\s\-–—•·]+/g, "")
+    .trim();
+
 const detectCategory = (text: string): string => {
   if (text.includes("вечерин") || text.includes("dj") || text.includes("бар")) return "🎉 Тусовки";
   if (text.includes("бег") || text.includes("спорт")) return "🏃 Активности";
@@ -444,6 +454,18 @@ const normalizeMoodInput = (value: string): string => {
   return "";
 };
 
+const normalizeCollectionInput = (value: string): CollectionKey | "" => {
+  const v = lower(value);
+  if (!v) return "";
+  if (v.includes("луч") || v.includes("актуал") || v.includes("топ") || v.includes("best")) return "🔥 Лучшее и актуальное";
+  if (v.includes("тело") || v.includes("движ") || v.includes("спорт") || v.includes("dance") || v.includes("йога")) return "💃 Тело и движение";
+  if (v.includes("сем") || v.includes("дет")) return "👨‍👩‍👧 Семья и дети";
+  if (v.includes("отнош") || v.includes("развит") || v.includes("коммуник") || v.includes("общ")) return "💛 Отношения и развитие";
+  if (v.includes("отдых") || v.includes("перезагруз") || v.includes("релакс") || v.includes("природ")) return "🌿 Отдых и перезагрузка";
+  if (v.includes("игр") || v.includes("досуг") || v.includes("квиз") || v.includes("настол")) return "🎲 Игры и досуг";
+  return "";
+};
+
 const runtimeStatus = (e: EventItem): EventStatus => {
   if (e.status === "cancelled" || e.status === "draft") return e.status;
   const ts = parseDateTime(e);
@@ -731,11 +753,25 @@ function App() {
           .map((x) => normalize(x))
           .filter(Boolean);
 
-        const categoriesFromTag = Array.from(new Set(tagList.map(normalizeCategoryInput).filter(Boolean)));
-        const moodsFromTag = Array.from(new Set(tagList.map(normalizeMoodInput).filter(Boolean)));
+        const tagVariants = tagList.flatMap((t) => {
+          const stripped = stripLeadingEmoji(t);
+          return stripped && stripped !== t ? [t, stripped] : [t];
+        });
+        const categoriesFromTag = Array.from(new Set(tagVariants.map(normalizeCategoryInput).filter(Boolean)));
+        const moodsFromTag = Array.from(new Set(tagVariants.map(normalizeMoodInput).filter(Boolean)));
         const categoryFromTag = categoriesFromTag[0] ?? "";
         const moodFromTag = moodsFromTag[0] ?? "";
-        const collectionsFromTag = tagList.filter((t): t is CollectionKey => (collectionKeys as readonly string[]).includes(t));
+        const collectionsFromTag = Array.from(
+          new Set(
+            tagVariants
+              .map((t) => {
+                if ((collectionKeys as readonly string[]).includes(t)) return t as CollectionKey;
+                const inferred = normalizeCollectionInput(t);
+                return inferred || "";
+              })
+              .filter((x): x is CollectionKey => Boolean(x))
+          )
+        );
 
         const rawText = lower(`${title} ${description} ${location}`);
         const categoryFromFile = normalizeCategoryInput(field(row, ["category", "категория"])) || categoryFromTag;
@@ -921,6 +957,14 @@ function App() {
 
   const renderCards = (list: EventItem[]) => (
     <section className="list">
+      <div className="scroll-nav">
+        <button type="button" className="ghost" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+          ↑ Вверх
+        </button>
+        <button type="button" className="ghost" onClick={() => window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" })}>
+          ↓ Вниз
+        </button>
+      </div>
       {list.length === 0 && <div className="panel">Пока нет событий по этому запросу.</div>}
       {list.map((e) => {
         const wd = weekdayShortRu(e.date);
@@ -958,6 +1002,14 @@ function App() {
         </article>
         );
       })}
+      <div className="scroll-nav bottom">
+        <button type="button" className="ghost" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+          ↑ Вверх
+        </button>
+        <button type="button" className="ghost" onClick={() => window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" })}>
+          ↓ Вниз
+        </button>
+      </div>
     </section>
   );
 

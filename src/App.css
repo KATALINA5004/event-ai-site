@@ -382,6 +382,20 @@ button, a {
   line-height: 1;
 }
 
+.scroll-nav {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.scroll-nav.bottom {
+  margin-top: 6px;
+}
+.scroll-nav button {
+  padding: 7px 10px;
+  font-size: 13px;
+}
+
 input, select, textarea {
   width: 100%;
   border: 1px solid #dcc8a1;
